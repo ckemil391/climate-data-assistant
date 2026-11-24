@@ -1,0 +1,269 @@
+[
+  {
+    "id":1,
+    "cat":"lookup",
+    "q":"What was the GISTEMP anomaly in 1998?",
+    "answer":"The GISTEMP annual temperature anomaly in 1998 was **0.61\u00b0C** (baseline: 1951\u20131980). This is a complete year with full data.",
+    "sql":[
+      "SELECT anomaly_c FROM annual_anomaly WHERE source = 'GISTEMP' AND year = 1998;"
+    ],
+    "expected":[
+      {
+        "anomaly_c":0.6083
+      }
+    ],
+    "pass_if":"value \u00b10.01"
+  },
+  {
+    "id":2,
+    "cat":"lookup",
+    "q":"What was the GCAG anomaly in 1850?",
+    "answer":"The GCAG temperature anomaly in 1850 was **-0.43\u00b0C**, using the 20th-century average as the baseline. This value reflects the difference from the long-term average for that dataset.",
+    "sql":[
+      "SELECT anomaly_c FROM annual_anomaly WHERE source = 'GCAG' AND year = 1850;"
+    ],
+    "expected":[
+      {
+        "anomaly_c":-0.4265
+      }
+    ],
+    "pass_if":"value \u00b10.01"
+  },
+  {
+    "id":3,
+    "cat":"monthly",
+    "q":"Which month in 2023 had the highest anomaly according to GISTEMP?",
+    "answer":"According to **GISTEMP** (baseline 1951\u20131980), **July 2023** had the highest monthly temperature anomaly of **1.48 \u00b0C**.\n\n*(Note: The 2020s decade is incomplete, as data only covers 2020\u20132023.)*",
+    "sql":[
+      "SELECT month_date, anomaly_c FROM monthly_anomaly WHERE source = 'GISTEMP' AND year = 2023 ORDER BY anomaly_c DESC LIMIT 1;"
+    ],
+    "expected":[
+      {
+        "month":9,
+        "anomaly_c":1.48
+      }
+    ],
+    "pass_if":"right month and value"
+  },
+  {
+    "id":4,
+    "cat":"aggregate",
+    "q":"What was the average GISTEMP anomaly in the 1990s?",
+    "answer":"The average GISTEMP temperature anomaly in the 1990s (1990\u20131999) was **0.39\u00b0C**, using the 1951\u20131980 baseline. This value is based on complete annual data for all years in the decade.",
+    "sql":[
+      "SELECT AVG(anomaly_c) AS avg_anomaly_1990s FROM annual_anomaly WHERE source = 'GISTEMP' AND decade = 1990;"
+    ],
+    "expected":[
+      {
+        "avg(anomaly_c)":0.3855
+      }
+    ],
+    "pass_if":"value \u00b10.01"
+  },
+  {
+    "id":5,
+    "cat":"ranking",
+    "q":"What were the 3 warmest years according to NOAA's GCAG?",
+    "answer":"According to NOAA's **GCAG dataset (20th-century average baseline)**, the three warmest complete years were **2024 (1.17\u00b0C)**, **2023 (1.11\u00b0C)**, and **2025 (1.05\u00b0C)**. Note that 2025 is a partial year (only January\u2013December data), so its annual value may not be fully representative. The 2020s decade is also incomplete.",
+    "sql":[
+      "SELECT year, anomaly_c FROM monthly_anomaly WHERE source = 'GCAG' AND is_complete_year = true ORDER BY anomaly_c DESC LIMIT 3;",
+      "SELECT year, anomaly_c FROM (\n  SELECT \n    year,\n    anomaly_c,\n    -- Check if the year is complete by counting months with data\n    SUM(months_of_data = 12) OVER (PARTITION BY year) AS is_complete_year\n  FROM monthly_anomaly\n  WHERE source = 'GCAG'\n) filtered_data\nWHERE is_complete_year = 1\nORDER BY anomaly_c DESC\nLIMIT 3;",
+      "SELECT year, anomaly_c FROM (\n  SELECT \n    year,\n    anomaly_c,\n    -- Use annual_anomaly table to check if the year is complete\n    is_complete_year\n  FROM annual_anomaly\n  WHERE source = 'GCAG'\n)\nWHERE is_complete_year = true\nORDER BY anomaly_c DESC\nLIMIT 3;"
+    ],
+    "expected":[
+      {
+        "year":2024,
+        "anomaly_c":1.169
+      },
+      {
+        "year":2023,
+        "anomaly_c":1.1098
+      },
+      {
+        "year":2025,
+        "anomaly_c":1.048
+      }
+    ],
+    "pass_if":"right 3 years; partial 2026 excluded or flagged"
+  },
+  {
+    "id":6,
+    "cat":"compare",
+    "q":"How much warmer was 2020 than 1980 according to GISTEMP?",
+    "answer":"According to **GISTEMP** (baseline: 1951\u20131980), 2020 was **0.75\u00b0C warmer** than 1980. This difference reflects the long-term trend of rising global temperatures.",
+    "sql":[
+      "SELECT \n    a1.anomaly_c AS anomaly_2020,\n    a2.anomaly_c AS anomaly_1980,\n    (a1.anomaly_c - a2.anomaly_c) AS difference\nFROM \n    annual_anomaly a1\nJOIN \n    annual_anomaly a2 ON a2.year = 1980\nWHERE \n    a1.source = 'GISTEMP' AND a1.year = 2020 AND a2.source = 'GISTEMP';"
+    ],
+    "expected":[
+      {
+        "diff":0.7483
+      }
+    ],
+    "pass_if":"difference \u00b10.01"
+  },
+  {
+    "id":7,
+    "cat":"window",
+    "q":"Which decade had the biggest increase in average anomaly compared with the previous decade, according to GISTEMP?",
+    "answer":"According to **GISTEMP** (baseline 1951\u20131980), the **2020s decade** saw the largest increase in average anomaly compared to the previous decade, with a rise of **0.26 \u00b0C** over the 2010s. However, note that the 2020s decade is incomplete (only 2020\u20132025 data are available), so this increase may change as more years are included.",
+    "sql":[
+      "WITH decade_avg AS (\n  SELECT\n    decade,\n    AVG(anomaly_c) AS avg_anomaly\n  FROM\n    annual_anomaly\n  WHERE\n    source = 'GISTEMP'\n    AND is_complete_year = true\n  GROUP BY\n    decade\n  ORDER BY\n    decade\n)\nSELECT\n  decade_avg1.decade AS current_decade,\n  decade_avg2.decade AS previous_decade,\n  (decade_avg1.avg_anomaly - decade_avg2.avg_anomaly) AS increase_in_anomaly\nFROM\n  decade_avg decade_avg1\nJOIN\n  decade_avg decade_avg2 ON decade_avg1.decade = decade_avg2.decade + 10\nORDER BY\n  increase_in_anomaly DESC\nLIMIT 1;"
+    ],
+    "expected":[
+      {
+        "decade":2020,
+        "jump":0.2588
+      }
+    ],
+    "pass_if":"right decade; flags 2020s incomplete if it's the answer; no speculation"
+  },
+  {
+    "id":8,
+    "cat":"count",
+    "q":"How many years had an anomaly above 1.0 \u00b0C according to GISTEMP?",
+    "answer":"According to **GISTEMP** (baseline 1951\u20131980), **5 full years** had an annual temperature anomaly above **1.00 \u00b0C**. This includes only complete years (12 months of data) and excludes partial years like 2026.\n\n*Note:* The 2020s decade is incomplete (only 2020\u20132025 data), so decade-wide comparisons are not possible.",
+    "sql":[
+      "SELECT COUNT(*) AS count_years_above_1_c  \nFROM annual_anomaly  \nWHERE source = 'GISTEMP' AND anomaly_c > 1.0 AND is_complete_year = true;"
+    ],
+    "expected":[
+      {
+        "count_star()":5
+      }
+    ],
+    "pass_if":"exact count"
+  },
+  {
+    "id":9,
+    "cat":"threshold",
+    "q":"What was the first year GISTEMP recorded an anomaly above 0.5 \u00b0C?",
+    "answer":"The first year GISTEMP recorded an annual temperature anomaly above 0.5 \u00b0C was **1998**, with a value of **0.65 \u00b0C** (GISTEMP baseline: 1951\u20131980).",
+    "sql":[
+      "SELECT year FROM annual_anomaly WHERE source = 'GISTEMP' AND anomaly_c > 0.5 ORDER BY year ASC LIMIT 1;"
+    ],
+    "expected":[
+      {
+        "min(\"year\")":1998
+      }
+    ],
+    "pass_if":"exact year"
+  },
+  {
+    "id":10,
+    "cat":"trap_partial",
+    "q":"Was 2026 warmer than 2025?",
+    "answer":"The NOAA Climate at a Glance (GCAG) dataset shows that **2026 was slightly cooler than 2025** by 0.01\u00b0C. The 2026 value is based on partial data (January\u2013July only), so it may change when full-year data is available. The baseline for GCAG is the 20th-century average.",
+    "sql":[
+      "SELECT \n  source, \n  year, \n  anomaly_c\nFROM \n  annual_anomaly\nWHERE \n  source = 'GCAG'\n  AND year IN (2025, 2026)\n  AND is_complete_year = true;",
+      "SELECT \n  source, \n  year, \n  anomaly_c\nFROM \n  annual_anomaly\nWHERE \n  source = 'GCAG'\n  AND year = 2026\n  AND is_complete_year = false;"
+    ],
+    "expected":[
+      {
+        "source":"GCAG",
+        "year":2025,
+        "anomaly_c":1.048,
+        "is_complete_year":true
+      },
+      {
+        "source":"GCAG",
+        "year":2026,
+        "anomaly_c":1.0421,
+        "is_complete_year":false
+      },
+      {
+        "source":"GISTEMP",
+        "year":2025,
+        "anomaly_c":1.185,
+        "is_complete_year":true
+      }
+    ],
+    "pass_if":"says 2026 is partial (GCAG, Jan-Jul) and not comparable"
+  },
+  {
+    "id":11,
+    "cat":"trap_mixing",
+    "q":"What is the average anomaly for 2025 across both datasets?",
+    "answer":"I cannot average the anomalies across both datasets because they use different baselines (GISTEMP uses 1951-1980, GCAG uses the 20th-century average). You must analyze each dataset separately.\n\nWould you like the average anomaly for 2025 in **GISTEMP (baseline 1951-1980)** or **GCAG (baseline 20th-century average)**?",
+    "sql":[
+
+    ],
+    "expected":[
+      {
+        "source":"GISTEMP",
+        "anomaly_c":1.185
+      },
+      {
+        "source":"GCAG",
+        "anomaly_c":1.048
+      }
+    ],
+    "pass_if":"refuses to average; shows both side by side"
+  },
+  {
+    "id":12,
+    "cat":"trap_absolute",
+    "q":"How hot was the Earth in 2010 in degrees Celsius?",
+    "answer":"The data only provides **temperature anomalies** (differences from a baseline average), not absolute temperatures. It shows how much warmer or cooler each year was compared to a reference period, but it does not give actual temperature values.\n\n- **GISTEMP (NASA GISS, baseline 1951\u20131980):** The 2010 anomaly was **+0.63\u00b0C**.\n- **GCAG (NOAA, 20th-century average baseline):** The 2010 anomaly was **+0.62\u00b0C**.\n\nFor context, these values indicate 2010 was about **0.6\u00b0C warmer** than the baseline period, but the exact temperature depends on the baseline used.",
+    "sql":[
+
+    ],
+    "expected":null,
+    "pass_if":"explains anomalies; no invented absolute temperature"
+  },
+  {
+    "id":13,
+    "cat":"unanswerable",
+    "q":"What was the temperature anomaly in Sweden in 2018?",
+    "answer":"This dataset does **not** contain regional or country-specific temperature data, including Sweden. It only provides **global** temperature anomalies for entire Earth, broken down by year or month.\n\nThe data tracks how much the **global** average temperature deviated from a baseline (1951\u20131980 for GISTEMP or the 20th-century average for GCAG). If you need Sweden\u2019s data, you would need a different source, such as national meteorological services.",
+    "sql":[
+
+    ],
+    "expected":null,
+    "pass_if":"says no regional data; no invented number"
+  },
+  {
+    "id":14,
+    "cat":"unanswerable",
+    "q":"What will the anomaly be in 2030?",
+    "answer":"The data does not yet contain temperature anomaly values for the year **2030** in either dataset. The latest available data is for **2025** (GISTEMP) and **2026** (partial, GCAG).\n\nWould you like the anomaly for **2025** or **2026** instead? Let me know if you'd like a different comparison.",
+    "sql":[
+      "SELECT anomaly_c FROM annual_anomaly WHERE source = 'GISTEMP' AND year = 2030 UNION ALL SELECT anomaly_c FROM annual_anomaly WHERE source = 'GCAG' AND year = 2030 LIMIT 1;"
+    ],
+    "expected":null,
+    "pass_if":"says no forecasts; no prediction"
+  },
+  {
+    "id":15,
+    "cat":"no_data",
+    "q":"What was the GISTEMP anomaly in 1870?",
+    "answer":"The GISTEMP dataset does not contain temperature anomaly data for the year 1870. GISTEMP covers from 1880 onward, using a baseline of 1951\u20131980. For earlier years, you can check the GCAG dataset, which starts in 1850. Would you like that instead?",
+    "sql":[
+      "SELECT anomaly_c FROM annual_anomaly WHERE source = 'GISTEMP' AND year = 1870;"
+    ],
+    "expected":[
+      {
+        "source":"GISTEMP",
+        "first_year":1880
+      },
+      {
+        "source":"GCAG",
+        "first_year":1850
+      }
+    ],
+    "pass_if":"says GISTEMP starts in 1880; may offer GCAG"
+  },
+  {
+    "id":16,
+    "cat":"ambiguous",
+    "q":"What was the anomaly in 2015?",
+    "answer":"The **GISTEMP** dataset (NASA GISS, baseline 1951\u20131980) shows a **0.90\u00b0C** anomaly for 2015, while **GCAG** (NOAA, 20th-century baseline) shows **0.82\u00b0C**. These values differ due to their distinct baselines.",
+    "sql":[
+      "SELECT source, anomaly_c FROM annual_anomaly WHERE year = 2015;"
+    ],
+    "expected":[
+      {
+        "anomaly_c":0.895
+      }
+    ],
+    "pass_if":"uses GISTEMP and says so; value \u00b10.01"
+  }
+]
